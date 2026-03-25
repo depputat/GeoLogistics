@@ -3,7 +3,6 @@ import tkinter as tk
 import math
 import random
 
-# Масштаб по умолчанию (если не введено вручную)
 SCALE = 0.1
 
 ctk.set_appearance_mode("Dark")
@@ -13,7 +12,7 @@ ctk.set_default_color_theme("blue")
 class GeoLogisticsPro(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("GeoLogistics")
+        self.title("GeoLogistics Pro - Учет покрытия")
         self.geometry("1200x850")
 
         self.nodes = []
@@ -31,6 +30,18 @@ class GeoLogisticsPro(ctk.CTk):
         self.btn_node = self.create_btn("📍 Поставить базу", lambda: self.set_mode("БАЗА"))
         self.btn_edge = self.create_btn("🛣 Проложить дорогу", lambda: self.set_mode("ДОРОГА"))
 
+        # --- НОВЫЙ БЛОК: Выбор типа дороги ---
+        ctk.CTkLabel(self.sidebar, text="ТИП ПОКРЫТИЯ:", font=("Arial", 12)).pack(pady=(15, 0))
+        self.road_type_var = ctk.StringVar(value="Сухая дорога (x1.0)")
+        self.road_menu = ctk.CTkOptionMenu(
+            self.sidebar,
+            variable=self.road_type_var,
+            values=["Сухая дорога (x1.0)", "Грунтовка (x1.5)", "Грязь/Болото (x2.5)"],
+            fg_color="#444"
+        )
+        self.road_menu.pack(pady=5, padx=10, fill="x")
+        # -------------------------------------
+
         ctk.CTkLabel(self.sidebar, text="ВЫЧИСЛЕНИЯ", font=("Arial", 16, "bold")).pack(pady=(20, 5))
         self.btn_dijkstra = self.create_btn("🏁 Путь А -> Б (Дейкстра)", lambda: self.set_mode("ДЕЙКСТРА"))
         self.btn_aco = self.create_btn("🐜 Оптимизация (ACO)", self.run_aco_tour, "green")
@@ -40,7 +51,7 @@ class GeoLogisticsPro(ctk.CTk):
 
         self.log_box = ctk.CTkTextbox(self.sidebar, height=250, font=("Consolas", 12))
         self.log_box.pack(pady=20, padx=10, fill="x")
-        self.log("Готов к вводу данных.")
+        self.log("Готов к работе.\nВыберите тип покрытия перед прокладкой дороги.")
 
         self.canvas = tk.Canvas(self, bg="#1a1a1a", highlightthickness=0)
         self.canvas.pack(side="right", fill="both", expand=True, padx=10, pady=10)
@@ -98,30 +109,43 @@ class GeoLogisticsPro(ctk.CTk):
     def ask_and_add_edge(self, u, v):
         if u == v: return
 
-        # Считаем "автоматическую" длину для подсказки
         auto_dist = round(math.hypot(self.nodes[u][0] - self.nodes[v][0], self.nodes[u][1] - self.nodes[v][1]) * SCALE,
                           2)
-
-        # Вызываем диалог
-        dialog = ctk.CTkInputDialog(text=f"Введите длину дороги между {u} и {v} (км):", title="Параметры ребра")
+        dialog = ctk.CTkInputDialog(text=f"Введите длину дороги между {u} и {v} (км):", title="Параметры участка")
         input_val = dialog.get_input()
 
         try:
             if input_val is None or input_val.strip() == "":
-                final_dist = auto_dist
+                base_dist = auto_dist
             else:
-                final_dist = float(input_val.replace(',', '.'))
+                base_dist = float(input_val.replace(',', '.'))
 
-            self.adj[u][v] = final_dist
-            self.adj[v][u] = final_dist
+            # Логика коэффициентов покрытия
+            road_choice = self.road_type_var.get()
+            if "Сухая" in road_choice:
+                coef, color, type_name = 1.0, "#888888", "Сухо"
+            elif "Грунтовка" in road_choice:
+                coef, color, type_name = 1.5, "#d97706", "Грунт"
+            else:
+                coef, color, type_name = 2.5, "#7c3aed", "Грязь"
+
+            # Эффективная стоимость пути (которую видят алгоритмы)
+            final_cost = round(base_dist * coef, 2)
+
+            self.adj[u][v] = final_cost
+            self.adj[v][u] = final_cost
 
             x1, y1 = self.nodes[u]
             x2, y2 = self.nodes[v]
-            self.canvas.create_line(x1, y1, x2, y2, fill="#444", width=2, tags="bg_edge")
-            self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2 - 10, text=f"{final_dist}км", fill="#fbbf24",
-                                    font=("Arial", 10, "bold"))
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3 if coef > 1 else 2, tags="bg_edge")
+
+            # Подпись на холсте (показываем реальные КМ и тип покрытия)
+            label_text = f"{base_dist}км ({type_name})"
+            self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2 - 12, text=label_text, fill=color,
+                                    font=("Arial", 9, "bold"))
             self.canvas.tag_lower("bg_edge")
-            self.log(f"Добавлена дорога: {u} <-> {v} ({final_dist} км)")
+
+            self.log(f"Добавлена дорога: \n{u} <-> {v}\nФактическая длина: \n{base_dist} км\nЭффективная длина: \n{final_cost} км")
 
         except ValueError:
             self.log("ОШИБКА: Введите числовое значение!")
@@ -147,8 +171,8 @@ class GeoLogisticsPro(ctk.CTk):
             nodes_list.remove(current)
             if distances[current] == float('inf'): break
 
-            for neighbor, weight in self.adj[current].items():
-                alt = distances[current] + weight
+            for neighbor, weight_cost in self.adj[current].items():
+                alt = distances[current] + weight_cost
                 if alt < distances[neighbor]:
                     distances[neighbor] = alt
                     previous[neighbor] = current
@@ -179,7 +203,6 @@ class GeoLogisticsPro(ctk.CTk):
 
         best_path, min_dist = None, float('inf')
 
-        # Простая реализация муравьев для графа с ручными весами
         for _ in range(200):
             path = [0]
             curr = 0
@@ -215,7 +238,7 @@ class GeoLogisticsPro(ctk.CTk):
             self.canvas.create_text(x1 + 15, y1 + 15, text=f"[{i + 1}]", fill="#22c55e", font=("Arial", 12, "bold"),
                                     tags="nav")
 
-        self.log(f"{title}\nИтог: {dist:.2f} км\nЦепочка: {' -> '.join(map(str, path))}")
+        self.log(f"{title}\nЭффективная дистанция: \n{dist:.2f} км\nЦепочка: \n{' -> '.join(map(str, path))}")
 
 
 if __name__ == "__main__":
