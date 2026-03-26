@@ -12,7 +12,7 @@ ctk.set_default_color_theme("blue")
 class GeoLogisticsPro(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("GeoLogistics Pro - Учет покрытия")
+        self.title("GeoLogistics")
         self.geometry("1200x850")
 
         self.nodes = []
